@@ -227,7 +227,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- Built on top of the excellent [eg4_inverter_api](https://github.com/twistedroutes/eg4_inverter_api) library
+- Inspired by the [eg4_inverter_api](https://github.com/twistedroutes/eg4_inverter_api) library
 - Powered by the [Model Context Protocol](https://modelcontextprotocol.io/)
 - Special thanks to the EG4 community for reverse-engineering efforts
 
