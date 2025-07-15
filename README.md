@@ -34,8 +34,7 @@ python server.py
 - EG4 inverter with online monitoring account
 - Access to EG4 monitoring portal credentials
 
-### Install from PyPI (Coming Soon)
-
+### Install from PyPI
 ```bash
 pip install eg4-mcp-server
 ```
@@ -133,7 +132,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "eg4": {
       "command": "python",
-      "args": ["/path/to/eg4-mcp-server/server.py"],
+      "args": ["-m", "eg4_mcp_server"],
       "env": {
         "EG4_USERNAME": "your_username",
         "EG4_PASSWORD": "your_password"
