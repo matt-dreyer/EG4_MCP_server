@@ -1,11 +1,9 @@
-# --- local editable dependencies ---
--e ../eg4_python          # work from source
-
 # --- runtime dependencies ---
 aiohttp>=3.8.5
 python-dotenv>=1.0.0
 mcp[cli]>=1.11.0
 httpx>=0.28.1             # mcp transitively needs this, but pin it anyway
+eg4_python
 
 # --- dev / test ---
 pytest>=8.4.0
