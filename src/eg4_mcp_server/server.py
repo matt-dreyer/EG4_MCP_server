@@ -916,6 +916,26 @@ async def cleanup():
         _api_instance = None
         logger.info("API instance closed")
 
+def main():
+    """Main entry point for the EG4 MCP server."""
+    import signal
+    import sys
+    
+    def signal_handler(sig, frame):
+        logger.info("Shutting down gracefully...")
+        asyncio.create_task(cleanup())
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        logger.info("Starting EG4 MCP Server...")
+        mcp.run(transport="stdio")
+    finally:
+        asyncio.run(cleanup())
+
+        
 # Run the MCP server
 if __name__ == "__main__":
     import signal
