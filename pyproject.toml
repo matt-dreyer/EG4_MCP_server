@@ -7,7 +7,7 @@ name = "eg4-mcp-server"
 version = "0.1.0"
 description = "Model Context Protocol server for EG4 solar inverter monitoring and control"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = {file = "LICENSE.md"}
 authors = [
     {name = "Matt Dreyer", email = "matt_dreyer@hotmail.com"}  # Replace with your actual email
 ]
