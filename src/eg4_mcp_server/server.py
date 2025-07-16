@@ -904,17 +904,18 @@ async def get_daily_chart_data(
 
 
 
-
-
-
 # Cleanup function for graceful shutdown
 async def cleanup():
     """Clean up API connections on shutdown."""
     global _api_instance
     if _api_instance:
-        await _api_instance.close()
-        _api_instance = None
-        logger.info("API instance closed")
+        try:
+            await _api_instance.close()
+        except Exception as e:
+            logger.error(f"Error closing API instance: {e}")
+        finally:
+            _api_instance = None
+            logger.info("API instance closed")
 
 def main():
     """Main entry point for the EG4 MCP server."""
@@ -923,7 +924,6 @@ def main():
     
     def signal_handler(sig, frame):
         logger.info("Shutting down gracefully...")
-        asyncio.create_task(cleanup())
         sys.exit(0)
     
     signal.signal(signal.SIGINT, signal_handler)
@@ -932,25 +932,16 @@ def main():
     try:
         logger.info("Starting EG4 MCP Server...")
         mcp.run(transport="stdio")
+    except KeyboardInterrupt:
+        logger.info("Server interrupted by user")
+    except Exception as e:
+        logger.error(f"Server error: {e}")
     finally:
-        asyncio.run(cleanup())
+        try:
+            asyncio.run(cleanup())
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
 
-        
 # Run the MCP server
 if __name__ == "__main__":
-    import signal
-    import sys
-    
-    def signal_handler(sig, frame):
-        logger.info("Shutting down gracefully...")
-        asyncio.create_task(cleanup())
-        sys.exit(0)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    try:
-        logger.info("Starting EG4 MCP Server...")
-        mcp.run(transport="stdio")
-    finally:
-        asyncio.run(cleanup())
+    main()
