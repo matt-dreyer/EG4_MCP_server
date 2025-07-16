@@ -73,13 +73,31 @@ async def get_api_instance() -> EG4Inverter:
     
     return _api_instance
 
+def safe_float(value: Any, default: float = 0.0) -> float:
+    """Safely convert a value to float, handling None, strings, and other types."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+def safe_int(value: Any, default: int = 0) -> int:
+    """Safely convert a value to int, handling None, strings, and other types."""
+    if value is None:
+        return default
+    try:
+        return int(float(value))  # Convert to float first to handle string decimals
+    except (ValueError, TypeError):
+        return default
+
 def format_power_value(value: Any, unit: str = "W") -> str:
     """Format power values with appropriate units."""
     if value is None:
         return "N/A"
     
     try:
-        val = float(value)
+        val = safe_float(value)
         if abs(val) >= 1000:
             return f"{val/1000:.2f} k{unit}"
         return f"{val:.1f} {unit}"
@@ -92,7 +110,7 @@ def format_energy_value(value: Any, unit: str = "Wh") -> str:
         return "N/A"
     
     try:
-        val = float(value)
+        val = safe_float(value)
         if abs(val) >= 1000000:
             return f"{val/1000000:.2f} M{unit}"
         elif abs(val) >= 1000:
@@ -106,19 +124,19 @@ def generate_recommendations(runtime_data, energy_data, battery_data) -> List[st
     recommendations = []
     
     # Check solar generation
-    current_solar = getattr(runtime_data, 'ppvpCharge', 0) or 0
+    current_solar = safe_float(getattr(runtime_data, 'ppvpCharge', 0))
     if current_solar < 100:  # Assuming daytime check could be improved
         recommendations.append("Solar generation is low - check for shading or panel cleanliness")
     
     # Check battery health
     if hasattr(battery_data, 'battery_units') and battery_data.battery_units:
         low_soh_units = [unit for unit in battery_data.battery_units 
-                        if getattr(unit, 'soh', 100) < 90]
+                        if safe_float(getattr(unit, 'soh', 100)) < 90]
         if low_soh_units:
             recommendations.append(f"Battery units with low health detected: {len(low_soh_units)} units below 90% SOH")
     
     # Check grid dependency
-    grid_power = getattr(runtime_data, 'pToGrid', 0) or 0
+    grid_power = safe_float(getattr(runtime_data, 'pToGrid', 0))
     if grid_power < 0:  # Importing from grid
         recommendations.append("Currently importing from grid - consider load balancing")
     
@@ -133,7 +151,7 @@ def _find_peak_generation_time(data_points) -> str:
     if not data_points:
         return "N/A"
     
-    peak_point = max(data_points, key=lambda p: p.solar_pv)
+    peak_point = max(data_points, key=lambda p: safe_float(p.solar_pv))
     if peak_point.datetime:
         return peak_point.datetime.strftime("%H:%M")
     return peak_point.time.split()[1][:5] if peak_point.time else "N/A"
@@ -143,7 +161,7 @@ def _find_peak_consumption_time(data_points) -> str:
     if not data_points:
         return "N/A"
     
-    peak_point = max(data_points, key=lambda p: p.consumption)
+    peak_point = max(data_points, key=lambda p: safe_float(p.consumption))
     if peak_point.datetime:
         return peak_point.datetime.strftime("%H:%M")
     return peak_point.time.split()[1][:5] if peak_point.time else "N/A"
@@ -153,40 +171,41 @@ def _generate_daily_insights(daily_data) -> List[str]:
     insights = []
     
     # Solar generation insights
-    if daily_data.peak_solar_generation > 0:
+    peak_solar = safe_float(daily_data.peak_solar_generation)
+    if peak_solar > 0:
         peak_time = _find_peak_generation_time(daily_data.data_points)
-        insights.append(f"Peak solar generation of {format_power_value(daily_data.peak_solar_generation)} occurred at {peak_time}")
+        insights.append(f"Peak solar generation of {format_power_value(peak_solar)} occurred at {peak_time}")
     
     # Battery usage insights
-    soc_range = daily_data.max_soc - daily_data.min_soc
+    soc_range = safe_float(daily_data.max_soc) - safe_float(daily_data.min_soc)
     if soc_range > 50:
-        insights.append(f"Battery experienced significant cycling ({soc_range}% range) - good utilization")
+        insights.append(f"Battery experienced significant cycling ({soc_range:.1f}% range) - good utilization")
     elif soc_range < 20:
-        insights.append(f"Battery had minimal cycling ({soc_range}% range) - consider adjusting charge/discharge settings")
+        insights.append(f"Battery had minimal cycling ({soc_range:.1f}% range) - consider adjusting charge/discharge settings")
     
     # Grid dependency insights
-    if daily_data.total_grid_import_kwh > daily_data.total_solar_generation_kwh * 0.5:
+    total_grid_import = safe_float(daily_data.total_grid_import_kwh)
+    total_solar_gen = safe_float(daily_data.total_solar_generation_kwh)
+    if total_grid_import > total_solar_gen * 0.5:
         insights.append("High grid dependency detected - consider load shifting or battery optimization")
     
     # Energy balance insights
-    surplus = daily_data.total_solar_generation_kwh - daily_data.total_consumption_kwh
+    total_consumption = safe_float(daily_data.total_consumption_kwh)
+    surplus = total_solar_gen - total_consumption
     if surplus > 5:
         insights.append(f"Significant energy surplus ({surplus:.1f} kWh) - good day for solar generation")
     elif surplus < -5:
         insights.append(f"Energy deficit ({abs(surplus):.1f} kWh) - consumption exceeded generation")
     
     # Export insights
-    if daily_data.total_grid_export_kwh > daily_data.total_solar_generation_kwh * 0.2:
+    total_grid_export = safe_float(daily_data.total_grid_export_kwh)
+    if total_grid_export > total_solar_gen * 0.2:
         insights.append("High grid export - consider increasing self-consumption through load scheduling")
     
     if not insights:
         insights.append("System operating efficiently with balanced energy flows")
     
     return insights
-
-
-
-
 
 @mcp.tool("Fetch_Configuration")
 async def fetch_configuration() -> str:
@@ -318,10 +337,10 @@ async def get_current_production(system_id: Optional[int] = None) -> str:
                 "home_usage": format_energy_value(getattr(energy_data, 'todayUsage', 0))
             },
             "solar_panels": {
-                "pv1_voltage": f"{getattr(runtime_data, 'vpv1', 0)} V",
-                "pv2_voltage": f"{getattr(runtime_data, 'vpv2', 0)} V",
-                "pv3_voltage": f"{getattr(runtime_data, 'vpv3', 0)} V",
-                "pv4_voltage": f"{getattr(runtime_data, 'vpv4', 0)} V"
+                "pv1_voltage": f"{safe_float(getattr(runtime_data, 'vpv1', 0)):.1f} V",
+                "pv2_voltage": f"{safe_float(getattr(runtime_data, 'vpv2', 0)):.1f} V",
+                "pv3_voltage": f"{safe_float(getattr(runtime_data, 'vpv3', 0)):.1f} V",
+                "pv4_voltage": f"{safe_float(getattr(runtime_data, 'vpv4', 0)):.1f} V"
             }
         }
         
@@ -347,21 +366,23 @@ async def get_performance_analysis(days_back: int = 7, system_id: Optional[int] 
         energy_data = await api.get_inverter_energy_async()
         battery_data = await api.get_inverter_battery_async()
         
-        # Calculate basic efficiency metrics
-        total_generation = getattr(energy_data, 'totalYielding', 0) or 0
-        total_usage = getattr(energy_data, 'totalUsage', 0) or 0
-        total_grid_import = getattr(energy_data, 'totalImport', 0) or 0
+        # Calculate basic efficiency metrics with safe conversions
+        total_generation = safe_float(getattr(energy_data, 'totalYielding', 0))
+        total_usage = safe_float(getattr(energy_data, 'totalUsage', 0))
+        total_grid_import = safe_float(getattr(energy_data, 'totalImport', 0))
         
         grid_independence = 0
         if total_usage > 0:
             grid_independence = max(0, (total_usage - total_grid_import) / total_usage * 100)
         
         # Battery performance
-        battery_capacity = getattr(runtime_data, 'batCapacity', 0) or 0
+        battery_capacity = safe_float(getattr(runtime_data, 'batCapacity', 0))
         battery_efficiency = 0
-        if hasattr(battery_data, 'battery_units') and battery_data.battery_units:  # type: ignore
-            avg_soh = sum(getattr(unit, 'soh', 0) or 0 for unit in battery_data.battery_units) / len(battery_data.battery_units)  # type: ignore
-            battery_efficiency = avg_soh
+        if hasattr(battery_data, 'battery_units') and battery_data.battery_units:
+            valid_soh_values = [safe_float(getattr(unit, 'soh', 0)) for unit in battery_data.battery_units]
+            valid_soh_values = [soh for soh in valid_soh_values if soh > 0]  # Filter out zero/invalid values
+            if valid_soh_values:
+                battery_efficiency = sum(valid_soh_values) / len(valid_soh_values)
         
         result = {
             "timestamp": datetime.now().isoformat(),
@@ -375,8 +396,8 @@ async def get_performance_analysis(days_back: int = 7, system_id: Optional[int] 
             },
             "system_health": {
                 "inverter_status": getattr(runtime_data, 'statusText', 'Unknown'),
-                "battery_count": getattr(runtime_data, 'batParallelNum', 0),
-                "battery_capacity": f"{battery_capacity} Ah" if battery_capacity > 0 else "N/A"
+                "battery_count": safe_int(getattr(runtime_data, 'batParallelNum', 0)),
+                "battery_capacity": f"{battery_capacity:.1f} Ah" if battery_capacity > 0 else "N/A"
             },
             "recommendations": generate_recommendations(runtime_data, energy_data, battery_data)
         }
@@ -410,18 +431,18 @@ async def get_historical_data(
         # Try to get today's detailed data using daily chart
         today_detailed = None
         try:
-            today_chart = await api.get_daily_chart_data_async()  # type: ignore
+            today_chart = await api.get_daily_chart_data_async()
             if today_chart.success:
                 today_detailed = {
                     "date": datetime.now().strftime("%Y-%m-%d"),
-                    "solar_generation": f"{today_chart.total_solar_generation_kwh:.2f} kWh",
-                    "consumption": f"{today_chart.total_consumption_kwh:.2f} kWh",
-                    "grid_import": f"{today_chart.total_grid_import_kwh:.2f} kWh",
-                    "grid_export": f"{today_chart.total_grid_export_kwh:.2f} kWh",
+                    "solar_generation": f"{safe_float(today_chart.total_solar_generation_kwh):.2f} kWh",
+                    "consumption": f"{safe_float(today_chart.total_consumption_kwh):.2f} kWh",
+                    "grid_import": f"{safe_float(today_chart.total_grid_import_kwh):.2f} kWh",
+                    "grid_export": f"{safe_float(today_chart.total_grid_export_kwh):.2f} kWh",
                     "peak_solar": format_power_value(today_chart.peak_solar_generation),
                     "peak_consumption": format_power_value(today_chart.peak_consumption),
                     "data_points": today_chart.total_data_points,
-                    "battery_soc_range": f"{today_chart.min_soc}% - {today_chart.max_soc}%"
+                    "battery_soc_range": f"{safe_float(today_chart.min_soc):.1f}% - {safe_float(today_chart.max_soc):.1f}%"
                 }
         except Exception as e:
             logger.warning(f"Could not get detailed daily chart data: {e}")
@@ -487,23 +508,24 @@ async def get_system_alerts(days_back: int = 30, system_id: Optional[int] = None
             })
         
         # Check battery health
-        if hasattr(battery_data, 'battery_units') and battery_data.battery_units:  # type: ignore
-            for unit in battery_data.battery_units:  # type: ignore
-                soh = getattr(unit, 'soh', 100)
-                soc = getattr(unit, 'soc', 0)
+        if hasattr(battery_data, 'battery_units') and battery_data.battery_units:
+            for unit in battery_data.battery_units:
+                soh = safe_float(getattr(unit, 'soh', 100))
+                soc = safe_float(getattr(unit, 'soc', 0))
+                bat_index = getattr(unit, 'batIndex', 'Unknown')
                 
                 if soh < 80:
                     alerts.append({
                         "type": "battery_health",
                         "severity": "error",
-                        "message": f"Battery {getattr(unit, 'batIndex', 'Unknown')} SOH critical: {soh}%",
+                        "message": f"Battery {bat_index} SOH critical: {soh:.1f}%",
                         "timestamp": datetime.now().isoformat()
                     })
                 elif soh < 90:
                     warnings.append({
                         "type": "battery_health",
                         "severity": "warning",
-                        "message": f"Battery {getattr(unit, 'batIndex', 'Unknown')} SOH low: {soh}%",
+                        "message": f"Battery {bat_index} SOH low: {soh:.1f}%",
                         "timestamp": datetime.now().isoformat()
                     })
                 
@@ -511,7 +533,7 @@ async def get_system_alerts(days_back: int = 30, system_id: Optional[int] = None
                     warnings.append({
                         "type": "battery_charge",
                         "severity": "warning",
-                        "message": f"Battery {getattr(unit, 'batIndex', 'Unknown')} charge low: {soc}%",
+                        "message": f"Battery {bat_index} charge low: {soc:.1f}%",
                         "timestamp": datetime.now().isoformat()
                     })
         
@@ -554,19 +576,21 @@ async def get_system_health(system_id: Optional[int] = None) -> str:
         inverter_health = 100 if getattr(runtime_data, 'statusText', '').lower() in ['normal', 'running', 'ok'] else 50
         
         battery_health = 100
-        if hasattr(battery_data, 'battery_units') and battery_data.battery_units:  # type: ignore
-            avg_soh = sum(getattr(unit, 'soh', 100) for unit in battery_data.battery_units) / len(battery_data.battery_units)  # type: ignore
-            battery_health = avg_soh
+        if hasattr(battery_data, 'battery_units') and battery_data.battery_units:
+            valid_soh_values = [safe_float(getattr(unit, 'soh', 100)) for unit in battery_data.battery_units]
+            valid_soh_values = [soh for soh in valid_soh_values if soh > 0]  # Filter out invalid values
+            if valid_soh_values:
+                battery_health = sum(valid_soh_values) / len(valid_soh_values)
         
-        # Solar panel health (basic check)
+        # Solar panel health (basic check) - fix the comparison issue
         solar_health = 100
         vpv_values = [
-            getattr(runtime_data, 'vpv1', 0),
-            getattr(runtime_data, 'vpv2', 0),
-            getattr(runtime_data, 'vpv3', 0),
-            getattr(runtime_data, 'vpv4', 0)
+            safe_float(getattr(runtime_data, 'vpv1', 0)),
+            safe_float(getattr(runtime_data, 'vpv2', 0)),
+            safe_float(getattr(runtime_data, 'vpv3', 0)),
+            safe_float(getattr(runtime_data, 'vpv4', 0))
         ]
-        active_panels = sum(1 for v in vpv_values if v > 10)  # Assuming > 10V means active
+        active_panels = sum(1 for v in vpv_values if v > 10)  # Now safe since all values are floats
         
         overall_health = (inverter_health + battery_health + solar_health) / 3
         
@@ -585,16 +609,16 @@ async def get_system_health(system_id: Optional[int] = None) -> str:
                 "battery_system": {
                     "score": f"{battery_health:.1f}%",
                     "unit_count": len(getattr(battery_data, 'battery_units', [])),
-                    "capacity": f"{getattr(runtime_data, 'batCapacity', 0)} Ah"
+                    "capacity": f"{safe_float(getattr(runtime_data, 'batCapacity', 0)):.1f} Ah"
                 },
                 "solar_panels": {
                     "score": f"{solar_health:.1f}%",
                     "active_strings": active_panels,
                     "voltages": {
-                        "pv1": f"{getattr(runtime_data, 'vpv1', 0)} V",
-                        "pv2": f"{getattr(runtime_data, 'vpv2', 0)} V",
-                        "pv3": f"{getattr(runtime_data, 'vpv3', 0)} V",
-                        "pv4": f"{getattr(runtime_data, 'vpv4', 0)} V"
+                        "pv1": f"{vpv_values[0]:.1f} V",
+                        "pv2": f"{vpv_values[1]:.1f} V",
+                        "pv3": f"{vpv_values[2]:.1f} V",
+                        "pv4": f"{vpv_values[3]:.1f} V"
                     }
                 }
             },
@@ -635,16 +659,17 @@ async def get_maintenance_insights(
         maintenance_tasks = []
         
         # Battery maintenance checks
-        if hasattr(battery_data, 'battery_units') and battery_data.battery_units:  # type: ignore
-            for unit in battery_data.battery_units:  # type: ignore
-                soh = getattr(unit, 'soh', 100)
-                cycles = getattr(unit, 'cycleCnt', 0)
+        if hasattr(battery_data, 'battery_units') and battery_data.battery_units:
+            for unit in battery_data.battery_units:
+                soh = safe_float(getattr(unit, 'soh', 100))
+                cycles = safe_int(getattr(unit, 'cycleCnt', 0))
+                bat_index = getattr(unit, 'batIndex', 'Unknown')
                 
                 if soh < threshold_percent:
                     maintenance_tasks.append({
                         "priority": "high",
-                        "component": f"Battery {getattr(unit, 'batIndex', 'Unknown')}",
-                        "issue": f"SOH below threshold ({soh}% < {threshold_percent}%)",
+                        "component": f"Battery {bat_index}",
+                        "issue": f"SOH below threshold ({soh:.1f}% < {threshold_percent}%)",
                         "recommendation": "Consider battery replacement or professional inspection",
                         "estimated_effort": "2-4 hours (professional required)"
                     })
@@ -652,7 +677,7 @@ async def get_maintenance_insights(
                 if cycles > 5000:  # Typical cycle life threshold
                     recommendations.append({
                         "priority": "medium",
-                        "component": f"Battery {getattr(unit, 'batIndex', 'Unknown')}",
+                        "component": f"Battery {bat_index}",
                         "issue": f"High cycle count ({cycles} cycles)",
                         "recommendation": "Monitor closely for capacity degradation",
                         "estimated_effort": "Ongoing monitoring"
@@ -660,10 +685,10 @@ async def get_maintenance_insights(
         
         # Solar panel maintenance
         vpv_values = [
-            getattr(runtime_data, 'vpv1', 0),
-            getattr(runtime_data, 'vpv2', 0),
-            getattr(runtime_data, 'vpv3', 0),
-            getattr(runtime_data, 'vpv4', 0)
+            safe_float(getattr(runtime_data, 'vpv1', 0)),
+            safe_float(getattr(runtime_data, 'vpv2', 0)),
+            safe_float(getattr(runtime_data, 'vpv3', 0)),
+            safe_float(getattr(runtime_data, 'vpv4', 0))
         ]
         
         low_voltage_panels = [i+1 for i, v in enumerate(vpv_values) if 0 < v < 20]
@@ -742,7 +767,7 @@ async def get_daily_chart_data(
             api.set_selected_inverter(inverterIndex=system_id)
         
         # Get daily chart data
-        daily_data = await api.get_daily_chart_data_async(date_text)  # type: ignore
+        daily_data = await api.get_daily_chart_data_async(date_text)
         
         if not daily_data.success:
             return json.dumps({
@@ -766,37 +791,46 @@ async def get_daily_chart_data(
             result["raw_data"] = [
                 {
                     "time": point.time,
-                    "solar_pv": point.solar_pv,
-                    "grid_power": point.grid_power,
-                    "battery_discharging": point.battery_discharging,
-                    "consumption": point.consumption,
-                    "soc": point.soc,
-                    "ac_couple_power": point.ac_couple_power
+                    "solar_pv": safe_float(point.solar_pv),
+                    "grid_power": safe_float(point.grid_power),
+                    "battery_discharging": safe_float(point.battery_discharging),
+                    "consumption": safe_float(point.consumption),
+                    "soc": safe_float(point.soc),
+                    "ac_couple_power": safe_float(point.ac_couple_power)
                 } for point in daily_data.data_points
             ]
             
         elif analysis_type == "summary":
             # High-level summary
             result["daily_summary"] = {
-                "solar_generation": f"{daily_data.total_solar_generation_kwh:.2f} kWh",
-                "total_consumption": f"{daily_data.total_consumption_kwh:.2f} kWh",
-                "grid_import": f"{daily_data.total_grid_import_kwh:.2f} kWh",
-                "grid_export": f"{daily_data.total_grid_export_kwh:.2f} kWh",
+                "solar_generation": f"{safe_float(daily_data.total_solar_generation_kwh):.2f} kWh",
+                "total_consumption": f"{safe_float(daily_data.total_consumption_kwh):.2f} kWh",
+                "grid_import": f"{safe_float(daily_data.total_grid_import_kwh):.2f} kWh",
+                "grid_export": f"{safe_float(daily_data.total_grid_export_kwh):.2f} kWh",
                 "peak_solar": format_power_value(daily_data.peak_solar_generation),
                 "peak_consumption": format_power_value(daily_data.peak_consumption),
-                "battery_soc_range": f"{daily_data.min_soc}% - {daily_data.max_soc}%",
-                "average_soc": f"{daily_data.average_soc:.1f}%"
+                "battery_soc_range": f"{safe_float(daily_data.min_soc):.1f}% - {safe_float(daily_data.max_soc):.1f}%",
+                "average_soc": f"{safe_float(daily_data.average_soc):.1f}%"
             }
             
             # Calculate self-sufficiency and energy balance
+            total_consumption_kwh = safe_float(daily_data.total_consumption_kwh)
+            total_grid_import_kwh = safe_float(daily_data.total_grid_import_kwh)
+            total_solar_generation_kwh = safe_float(daily_data.total_solar_generation_kwh)
+            total_grid_export_kwh = safe_float(daily_data.total_grid_export_kwh)
+            
             self_sufficiency = 0
-            if daily_data.total_consumption_kwh > 0:
-                self_sufficiency = max(0, (daily_data.total_consumption_kwh - daily_data.total_grid_import_kwh) / daily_data.total_consumption_kwh * 100)
+            if total_consumption_kwh > 0:
+                self_sufficiency = max(0, (total_consumption_kwh - total_grid_import_kwh) / total_consumption_kwh * 100)
+            
+            solar_utilization = 0
+            if total_solar_generation_kwh > 0:
+                solar_utilization = ((total_solar_generation_kwh - total_grid_export_kwh) / total_solar_generation_kwh * 100)
             
             result["energy_efficiency"] = {
                 "self_sufficiency": f"{self_sufficiency:.1f}%",
-                "solar_utilization": f"{((daily_data.total_solar_generation_kwh - daily_data.total_grid_export_kwh) / max(daily_data.total_solar_generation_kwh, 0.001) * 100):.1f}%",
-                "energy_balance": f"{daily_data.total_solar_generation_kwh - daily_data.total_consumption_kwh:.2f} kWh"
+                "solar_utilization": f"{solar_utilization:.1f}%",
+                "energy_balance": f"{total_solar_generation_kwh - total_consumption_kwh:.2f} kWh"
             }
             
         elif analysis_type == "hourly":
@@ -824,8 +858,8 @@ async def get_daily_chart_data(
             charging_points = [p for p in daily_data.data_points if p.is_battery_charging]
             discharging_points = [p for p in daily_data.data_points if p.is_battery_discharging]
             
-            total_charge_wh = sum(abs(p.battery_discharging) for p in charging_points) * (10/60)
-            total_discharge_wh = sum(p.battery_discharging for p in discharging_points) * (10/60)
+            total_charge_wh = sum(abs(safe_float(p.battery_discharging)) for p in charging_points) * (10/60)
+            total_discharge_wh = sum(safe_float(p.battery_discharging) for p in discharging_points) * (10/60)
             
             battery_efficiency = 0
             if total_charge_wh > 0:
@@ -835,6 +869,11 @@ async def get_daily_chart_data(
             import_points = [p for p in daily_data.data_points if p.is_importing_from_grid]
             export_points = [p for p in daily_data.data_points if p.is_exporting_to_grid]
             
+            total_grid_import_kwh = safe_float(daily_data.total_grid_import_kwh)
+            total_grid_export_kwh = safe_float(daily_data.total_grid_export_kwh)
+            total_solar_generation_kwh = safe_float(daily_data.total_solar_generation_kwh)
+            total_consumption_kwh = safe_float(daily_data.total_consumption_kwh)
+            
             result["efficiency_analysis"] = {
                 "battery_round_trip_efficiency": f"{min(battery_efficiency, 100):.1f}%",
                 "total_energy_charged": f"{total_charge_wh/1000:.2f} kWh",
@@ -842,52 +881,61 @@ async def get_daily_chart_data(
                 "grid_interactions": {
                     "import_periods": len(import_points),
                     "export_periods": len(export_points),
-                    "net_grid_usage": f"{daily_data.total_grid_import_kwh - daily_data.total_grid_export_kwh:.2f} kWh"
+                    "net_grid_usage": f"{total_grid_import_kwh - total_grid_export_kwh:.2f} kWh"
                 },
                 "energy_flows": {
-                    "solar_to_consumption_direct": f"{min(daily_data.total_solar_generation_kwh, daily_data.total_consumption_kwh):.2f} kWh",
+                    "solar_to_consumption_direct": f"{min(total_solar_generation_kwh, total_consumption_kwh):.2f} kWh",
                     "battery_contribution": f"{total_discharge_wh/1000:.2f} kWh",
-                    "grid_dependency": f"{daily_data.total_grid_import_kwh:.2f} kWh"
+                    "grid_dependency": f"{total_grid_import_kwh:.2f} kWh"
                 }
             }
             
         else:  # "full" analysis
             # Comprehensive analysis combining all above
+            total_solar_generation_kwh = safe_float(daily_data.total_solar_generation_kwh)
+            total_consumption_kwh = safe_float(daily_data.total_consumption_kwh)
+            total_grid_import_kwh = safe_float(daily_data.total_grid_import_kwh)
+            total_grid_export_kwh = safe_float(daily_data.total_grid_export_kwh)
+            
             result["daily_summary"] = {
-                "solar_generation": f"{daily_data.total_solar_generation_kwh:.2f} kWh",
-                "total_consumption": f"{daily_data.total_consumption_kwh:.2f} kWh",
-                "grid_import": f"{daily_data.total_grid_import_kwh:.2f} kWh",
-                "grid_export": f"{daily_data.total_grid_export_kwh:.2f} kWh",
+                "solar_generation": f"{total_solar_generation_kwh:.2f} kWh",
+                "total_consumption": f"{total_consumption_kwh:.2f} kWh",
+                "grid_import": f"{total_grid_import_kwh:.2f} kWh",
+                "grid_export": f"{total_grid_export_kwh:.2f} kWh",
                 "peak_solar": format_power_value(daily_data.peak_solar_generation),
                 "peak_consumption": format_power_value(daily_data.peak_consumption),
-                "battery_soc_range": f"{daily_data.min_soc}% - {daily_data.max_soc}%",
-                "average_soc": f"{daily_data.average_soc:.1f}%"
+                "battery_soc_range": f"{safe_float(daily_data.min_soc):.1f}% - {safe_float(daily_data.max_soc):.1f}%",
+                "average_soc": f"{safe_float(daily_data.average_soc):.1f}%"
             }
             
             # Time-based analysis
             daytime_points = daily_data.filter_by_time_range(6, 18)  # 6 AM to 6 PM
             nighttime_points = daily_data.filter_by_time_range(18, 6)  # 6 PM to 6 AM (next day)
             
-            daytime_consumption = sum(p.consumption for p in daytime_points) * (10/60) / 1000
-            nighttime_consumption = sum(p.consumption for p in nighttime_points) * (10/60) / 1000
+            daytime_consumption = sum(safe_float(p.consumption) for p in daytime_points) * (10/60) / 1000
+            nighttime_consumption = sum(safe_float(p.consumption) for p in nighttime_points) * (10/60) / 1000
             
             result["time_analysis"] = {
                 "daytime_consumption": f"{daytime_consumption:.2f} kWh",
                 "nighttime_consumption": f"{nighttime_consumption:.2f} kWh",
-                "daytime_solar": f"{sum(p.solar_pv for p in daytime_points) * (10/60) / 1000:.2f} kWh",
+                "daytime_solar": f"{sum(safe_float(p.solar_pv) for p in daytime_points) * (10/60) / 1000:.2f} kWh",
                 "peak_generation_time": _find_peak_generation_time(daily_data.data_points),
                 "peak_consumption_time": _find_peak_consumption_time(daily_data.data_points)
             }
             
             # Efficiency metrics
             self_sufficiency = 0
-            if daily_data.total_consumption_kwh > 0:
-                self_sufficiency = max(0, (daily_data.total_consumption_kwh - daily_data.total_grid_import_kwh) / daily_data.total_consumption_kwh * 100)
+            if total_consumption_kwh > 0:
+                self_sufficiency = max(0, (total_consumption_kwh - total_grid_import_kwh) / total_consumption_kwh * 100)
+            
+            solar_utilization = 0
+            if total_solar_generation_kwh > 0:
+                solar_utilization = ((total_solar_generation_kwh - total_grid_export_kwh) / total_solar_generation_kwh * 100)
             
             result["efficiency_metrics"] = {
                 "self_sufficiency": f"{self_sufficiency:.1f}%",
-                "solar_utilization": f"{((daily_data.total_solar_generation_kwh - daily_data.total_grid_export_kwh) / max(daily_data.total_solar_generation_kwh, 0.001) * 100):.1f}%",
-                "energy_balance": f"{daily_data.total_solar_generation_kwh - daily_data.total_consumption_kwh:.2f} kWh"
+                "solar_utilization": f"{solar_utilization:.1f}%",
+                "energy_balance": f"{total_solar_generation_kwh - total_consumption_kwh:.2f} kWh"
             }
             
             # Generate insights and recommendations
