@@ -20,7 +20,7 @@ Example usage:
     # See README for configuration instructions
 """
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __author__ = "Matt Dreyer"
 __email__ = "matt_dreyer@hotmail.com"  # Replace with your actual email
 __license__ = "MIT"
