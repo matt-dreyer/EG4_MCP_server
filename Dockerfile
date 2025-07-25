@@ -1,7 +1,7 @@
 # Use Python 3.11 slim image
 FROM python:3.11-slim
 
-# Set working directory
+# Set working directory to match what the build tool expects
 WORKDIR /src/eg4_mcp_server
 
 # Install system dependencies if needed
@@ -29,5 +29,5 @@ ENV PYTHONUNBUFFERED=1
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)"
 
-# Run the MCP server - look for the main file
+# Run the MCP server
 CMD ["python", "server.py"]
