@@ -5,8 +5,8 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory (the build tool will override this anyway)
-WORKDIR /app
+# Set working directory to where the build tool clones the repo
+WORKDIR /src/eg4_mcp_server
 
 # Copy requirements first for better caching
 COPY requirements.txt .
@@ -24,5 +24,5 @@ ENV PYTHONUNBUFFERED=1
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)"
 
-# Run the MCP server (use absolute path since build tool changes working directory)
-CMD ["python", "/src/eg4_mcp_server/server.py"]
+# Run the MCP server (server.py is in the repo root, which becomes /src/eg4_mcp_server/)
+CMD ["python", "server.py"]
