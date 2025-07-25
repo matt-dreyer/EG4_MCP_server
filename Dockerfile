@@ -1,61 +1,36 @@
-name: eg4
-category: energy
-description: Model Context Protocol server for EG4 solar inverter monitoring and control
-repository: https://github.com/matt-dreyer/EG4_MCP_server
-author: Matt Dreyer
-license: MIT
+# Use Python 3.11 slim image
+FROM python:3.11-slim
 
-config:
-  description: Configure the connection to EG4 monitoring system
-  env:
-    - name: EG4_USERNAME
-      example: your_eg4_username
-      value: '{{eg4.username}}'
-    - name: EG4_PASSWORD
-      example: your_eg4_password  
-      value: '{{eg4.password}}'
-    - name: EG4_BASE_URL
-      example: https://monitor.eg4electronics.com
-      value: '{{eg4.base_url}}'
-    - name: EG4_DISABLE_VERIFY_SSL
-      example: "0"
-      value: '{{eg4.disable_verify_ssl}}'
-  
-  parameters:
-    type: object
-    properties:
-      username:
-        type: string
-        description: EG4 monitoring portal username
-      password:
-        type: string
-        description: EG4 monitoring portal password  
-      base_url:
-        type: string
-        description: EG4 monitoring base URL
-        default: https://monitor.eg4electronics.com
-      disable_verify_ssl:
-        type: string
-        description: Disable SSL verification (0 or 1)
-        default: "0"
-    required:
-      - username
-      - password
+# Set working directory
+WORKDIR /app
 
-tools:
-  - name: Fetch_Configuration
-    description: Get complete system configuration and status
-  - name: Get_System_Details  
-    description: Detailed system information and inverter specs
-  - name: Get_Current_Production
-    description: Real-time production and consumption data
-  - name: Get_Performance_Analysis
-    description: Performance metrics and efficiency analysis
-  - name: Get_Historical_Data
-    description: Historical energy data and trends
-  - name: Get_System_Alerts
-    description: System health alerts and warnings
-  - name: Get_System_Health
-    description: Comprehensive health scoring
-  - name: Get_Maintenance_Insights
-    description: Maintenance recommendations and scheduling
+# Install system dependencies if needed
+RUN apt-get update && apt-get install -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the application code
+COPY . .
+
+# Create a non-root user for security
+RUN useradd --create-home --shell /bin/bash app && \
+    chown -R app:app /app
+USER app
+
+# Expose the port (if your server uses a specific port)
+# EXPOSE 8000
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+
+# Health check (optional but recommended)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)"
+
+# Run the MCP server
+CMD ["python", "server.py"]
