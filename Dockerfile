@@ -24,5 +24,5 @@ ENV PYTHONUNBUFFERED=1
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)"
 
-# Run the MCP server (server.py is in the repo root, which becomes /src/eg4_mcp_server/)
-CMD ["python", "server.py"]
+# Run the MCP server - server.py is in src/eg4_mcp_server/ subdirectory
+CMD ["python", "src/eg4_mcp_server/server.py"]
