@@ -2,7 +2,7 @@
 FROM python:3.11-slim
 
 # Set working directory to match what the build tool expects
-WORKDIR /src/eg4_mcp_server
+WORKDIR /
 
 # Install system dependencies if needed
 RUN apt-get update && apt-get install -y \
@@ -19,7 +19,7 @@ COPY . .
 
 # Create a non-root user for security
 RUN useradd --create-home --shell /bin/bash app && \
-    chown -R app:app /src/eg4_mcp_server
+    chown -R app:app /
 USER app
 
 # Set environment variables
@@ -30,4 +30,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import sys; sys.exit(0)"
 
 # Run the MCP server
-CMD ["python", "server.py"]
+CMD ["python", "/src/eg4_mcp_server/server.py"]
